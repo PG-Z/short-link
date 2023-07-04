@@ -35,7 +35,7 @@ const Search = () => {
                     onChange={({ target }) => setUrl(target.value)}
                     onKeyUp={handleKeyup}
                 />
-                <Button label=")缩(" onClick={handleClick} />
+                <Button label="Go" onClick={handleClick} />
             </div>
             <Error />
         </div>

@@ -1,5 +1,6 @@
 FROM node:16-alpine3.16
 
+MAINTAINER evan <god520@vip.qq.com>
 WORKDIR /app
 
 COPY package*.json ./
