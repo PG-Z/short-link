@@ -6,6 +6,7 @@ const morgan = require('morgan');
 morgan.token('body', (req) => JSON.stringify(req.body));
 
 const Redis = require('redis');
+const md5 = require("js-md5");
 const redis = Redis.createClient({
     socket: {
         host: process.env.REDIS_HOST || '127.0.0.1',
@@ -21,7 +22,8 @@ redis.on('reconnecting', () => console.log('Redis is reconnecting'));
 redis.on('ready', () => console.log('Redis is ready'));
 const redisKey = {
     code: 'short-url:code',
-    map: 'short-url:map'
+    map: 'short-url:map',
+    md5: 'short-url:md5'
 };
 
 const _alphabet = 'GS2w4R6789IbcdHEXhijWZAzopTrxPNq3sLMJalBVyQeDmY0nugtF5Uv1fkOCK';
@@ -49,14 +51,32 @@ app.get('/:code', async (request, response) => {
 });
 
 app.post('/', async (request, response) => {
-    const encodedUrl = encodeURI(request.body.url);
-    if (!/^((https|http)?:\/\/)[^\s]+/.test(encodedUrl)) {
+    const decodedUrl = decodeURI(request.body.url);
+    if (!/^((https|http)?:\/\/)[^\s]+/.test(decodedUrl)) {
         return response.status(400).json({ error: 'Incorrect URL format' }).end();
     }
-    const id = await redis.incrBy(redisKey.code, 1);
-    const code = encode(id);
-    await redis.hSet(redisKey.map, code, encodedUrl);
-    response.json({ url: encodedUrl, code });
+
+    let md5 = require('js-md5');
+
+    let mark = false;
+
+    const hashCode = await redis.get(redisKey.md5 + md5(decodedUrl))
+    if (hashCode) {
+        const originUrl = await redis.hGet(redisKey.map, hashCode);
+        if (originUrl) {
+            mark =true;
+        }
+    }
+
+    let code = hashCode;
+    if (!mark) {
+        const id = await redis.incrBy(redisKey.code, 1);
+        code = encode(id);
+        await redis.set(redisKey.md5 + md5(decodedUrl), code);
+        await redis.hSet(redisKey.map, code, decodedUrl);
+    }
+
+    response.json({ url: decodedUrl, code });
 });
 
 const PORT = 3001;
