@@ -1,4 +1,7 @@
 require('dotenv').config();
+const urlMapOpt = require("./src/db/urlMapOpt")
+const urlCodeOpt = require("./src/db/urlCodeOpt")
+const urlMd5Opt = require("./src/db/urlMd5Opt")
 const express = require('express');
 const app = express();
 
@@ -7,6 +10,7 @@ morgan.token('body', (req) => JSON.stringify(req.body));
 
 const Redis = require('redis');
 const md5 = require("js-md5");
+const mysqlU = require("./src/db/mysqlUtil");
 const redis = Redis.createClient({
     socket: {
         host: process.env.REDIS_HOST || '127.0.0.1',
@@ -45,7 +49,7 @@ app.get('/:code', async (request, response) => {
     const code = request.params.code;
     const originUrl = await redis.hGet(redisKey.map, code);
     if (!originUrl) {
-        return response.status(404).json({ error: 'Unknown URL' }).end();
+        return response.status(404).json({error: 'Unknown URL'}).end();
     }
     response.redirect(originUrl);
 });
@@ -53,7 +57,7 @@ app.get('/:code', async (request, response) => {
 app.post('/', async (request, response) => {
     const decodedUrl = decodeURI(request.body.url);
     if (!/^((https|http)?:\/\/)[^\s]+/.test(decodedUrl)) {
-        return response.status(400).json({ error: 'Incorrect URL format' }).end();
+        return response.status(400).json({error: 'Incorrect URL format'}).end();
     }
 
     let md5 = require('js-md5');
@@ -64,20 +68,68 @@ app.post('/', async (request, response) => {
     if (hashCode) {
         const originUrl = await redis.hGet(redisKey.map, hashCode);
         if (originUrl) {
-            mark =true;
+            mark = true;
         }
     }
 
     let code = hashCode;
     if (!mark) {
         const id = await redis.incrBy(redisKey.code, 1);
+        await urlCodeOpt.updateCode(id)
         code = encode(id);
-        await redis.set(redisKey.md5 + md5(decodedUrl), code);
+        let url_md5 = redisKey.md5 + md5(decodedUrl);
+        urlMd5Opt.insert([code, url_md5, url_md5])
+        await redis.set(url_md5, code);
+        await urlMapOpt.insert([code, decodedUrl, decodedUrl])
         await redis.hSet(redisKey.map, code, decodedUrl);
     }
 
-    response.json({ url: decodedUrl, code });
+    response.json({url: decodedUrl, code});
 });
+
+app.get('/sync/redisToMysql', async (req, res) => {
+    // 保存 HashMap 所有键值对到 MySQL
+    await saveAllHashToMySQL(redisKey.map);
+    await syncUrlMd5RedisToMySQL();
+});
+
+// 获取 HashMap 所有键值对并保存到 MySQL 的函数
+async function saveAllHashToMySQL(hashKey) {
+    try {
+        const hashData = await redis.hGetAll(hashKey);
+        const keys = Object.keys(hashData);
+
+        try {
+            for (const key of keys) {
+                const value = hashData[key];
+                urlMapOpt.insert([key, value, value])
+            }
+        } catch (error) {
+            throw error;
+        }
+    } catch (error) {
+        console.error('Error saving hash to MySQL:', error);
+    }
+}
+
+async function syncUrlMd5RedisToMySQL() {
+    try {
+        // 获取所有以 short-url:md5 为前缀的键
+        const keys = await redis.keys(redisKey.md5 + '*');
+
+        try {
+            for (const key of keys) {
+                const urlMd5 = key;
+                const urlKey = await redis.get(key);
+                urlMd5Opt.insert([urlKey, urlMd5, urlMd5])
+            }
+        } catch (error) {
+            throw error;
+        }
+    } catch (error) {
+        console.error('Error syncing Redis to MySQL:', error);
+    }
+}
 
 const PORT = 3001;
 redis.connect().then(() => {
