@@ -6,10 +6,6 @@
 
 服务托管在 [fly.io](https://fly.io) 平台，此平台可通过 Docker 部署任意类型的应用，前三个应用免费，推荐使用。
 
-## 效果演示
-
-![Demo](https://cdn.jsdelivr.net/gh/onee-io/short-url/docs/demo1.gif)
-
 ## 环境依赖
 
 - NodeJS 16+
